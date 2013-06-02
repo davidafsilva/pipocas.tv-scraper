@@ -208,11 +208,11 @@ class PipocasSubtitle:
         return "Subtitle[" + ', '.join("%s: %s" % item for item in attrs.items()) + "]"
 
 
-# the scrapper class
-class PipocasScrapper:
+# the scraper class
+class PipocasScraper:
     def __init__(self):
         """
-        Scrapper constructor
+        Scraper constructor
         """
         self.cookies = None
         self.error = None
@@ -402,13 +402,13 @@ class PipocasScrapper:
 
 def main():
     if len(sys.argv) == 1:
-        print "Pipocas scrapper v%s (c) David Silva" % (VERSION)
+        print "Pipocas scraper v%s (c) David Silva" % (VERSION)
         print "Usage: %s (release|movie|tv-show)" % (sys.argv[0])
     else:
-        scrapper = PipocasScrapper()
-        results = scrapper.search(sys.argv[1])
-        if scrapper.has_errors():
-            print scrapper.get_error()
+        scraper = PipocasScraper()
+        results = scraper.search(sys.argv[1])
+        if scraper.has_errors():
+            print scraper.get_error()
         else:
             for sub in results:
                 print sub

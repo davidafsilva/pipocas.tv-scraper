@@ -26,9 +26,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 import urllib
 import urllib2
-import sys
 import re
 import datetime
+import argparse
 from bs4 import BeautifulSoup
 
 # configuration
@@ -114,7 +114,8 @@ http_codes = {
 }
 
 # version
-VERSION = "0.10"
+VERSION = "0.20"
+
 
 # Country class
 class PipocasSubtitleCountry:
@@ -142,7 +143,8 @@ class PipocasSubtitleCountry:
         to string method implementation
         """
         attrs = vars(self)
-        return "Country[" + ', '.join("%s: %s" % item for item in attrs.items()) + "]"
+        return u"Country" + str(attrs)
+
 
 # Subtitle class
 class PipocasSubtitle:
@@ -205,7 +207,7 @@ class PipocasSubtitle:
         to string method implementation
         """
         attrs = vars(self)
-        return "Subtitle[" + ', '.join("%s: %s" % item for item in attrs.items()) + "]"
+        return u"Subtitle" + str(attrs)
 
 
 # the scraper class
@@ -248,7 +250,8 @@ class PipocasScraper:
         Builds an HTTP request
         """
         request = urllib2.Request(url, data)
-        request.add_header("User-agent", configuration["HTTP_USER_AGENT"])
+        request.add_header("DNT", "1")
+        request.add_header("User-agent", self.__config("HTTP_USER_AGENT"))
         if not self.cookies is None:
             request.add_header("Cookie", self.cookies)
         return request
@@ -282,18 +285,16 @@ class PipocasScraper:
             self.error = "Unable to reach the server:", e.reason
         return None
 
-    def __login(self):
+    def __login(self, user, pwd):
         """
         Logs in into the server
         """
         url = self.__config("LOGIN_URL")
-        user = self.__config("LOGIN_USER")
-        pwd = self.__config("LOGIN_PWD")
         self.__debug("Logging in as " + user + "...")
         response = self.__post(url, {'username': user, 'password': pwd})
         if not self.has_errors():
             html = response.read()
-            if not re.search(configuration["LOGIN_FAIL_REGEX"], html):
+            if not re.search(self.__config("LOGIN_FAIL_REGEX"), html):
                 self.cookies = response.info()["Set-Cookie"]
                 self.__debug("Successfully logged in!")
                 return True
@@ -330,15 +331,14 @@ class PipocasScraper:
             tmp = result.select("li.sub-box2")[0].ul.li
             elements["hits"] = int(tmp.contents[1].strip())
             # rating
-            tmp = results.select("li.sub-box4")[0].div.div
-            tmp = tmp.contents
+            tmp = result.select("li.sub-box4")[0].div.div.contents
             if not tmp is None and len(tmp) > 0:
                 tmp = tmp[len(tmp)-1].split()
                 if not tmp is None and len(tmp) == 6:
                     elements["rating"] = float(tmp[0])
                     elements["votes"] = int(tmp[4])
             # download
-            tmp = results.select("a.download")[0]
+            tmp = result.select("a.download")[0]
             elements["download"] = configuration["BASE_URL"] + tmp["href"]
             # add the subtitle
             response.append(self.__create_sub(elements))
@@ -356,7 +356,6 @@ class PipocasScraper:
     def __sort(self, subtitles):
         """
         Sorts the given list of subtitles by rating/hits
-        TODO: implement
         """
         return sorted(subtitles, key=lambda subtitle: (subtitle.get_rating(), subtitle.get_hits()), reverse=True)
 
@@ -377,12 +376,12 @@ class PipocasScraper:
         """
         return self.error
 
-    def search(self, release):
+    def search(self, user, pwd, release):
         """
         Searches subtitles for the given release
         """
         self.error = None
-        if self.__login():
+        if self.__login(user, pwd):
             geturl = self.__generate_search_url(release)
             self.__debug("fetching URL: " + geturl)
             results = self.__get(geturl)
@@ -400,19 +399,32 @@ class PipocasScraper:
         return None
 
 
-def main():
-    if len(sys.argv) == 1:
-        print "Pipocas scraper v%s (c) David Silva" % (VERSION)
-        print "Usage: %s (release|movie|tv-show)" % (sys.argv[0])
-    else:
-        scraper = PipocasScraper()
-        results = scraper.search(sys.argv[1])
-        if scraper.has_errors():
-            print scraper.get_error()
-        else:
-            for sub in results:
-                print sub
+# arg parser
+parser = argparse.ArgumentParser(description='Pipocas scraper v%s (c) David Silva 2013' % (VERSION))
+parser.add_argument('release', metavar='release|movie|tv-show', default=None, help='release/movie/tv-show to be searched for')
+parser.add_argument('-u', '--user', metavar='<user>', default=configuration["LOGIN_USER"], help='specifies the user for the authentication')
+parser.add_argument('-p', '--password', metavar='<password>', default=configuration["LOGIN_PWD"], help='specifies the password for the authentication')
+parser.add_argument('-v', '--verbose', action='store_true', help='turns on the debug/verbose output')
+parser.add_argument('-V', '--version', action='version', version='Pipocas scraper v%s' % (VERSION))
+args = parser.parse_args()
 
-# call the main
-if __name__ == "__main__":
-    main()
+# setup debug
+configuration["DEBUG"] = args.verbose
+
+# execute the scraper
+scraper = PipocasScraper()
+subtitles = scraper.search(args.user, args.password, args.release)
+if scraper.has_errors():
+    print scraper.get_error()
+elif not subtitles is None and len(subtitles) > 0:
+    print "   Country\t| Release/Movie/Tv-show\t\t\t\t| Rating\t| Hits\t| Download\t"
+    print "-" * 90
+    for subtitle in subtitles:
+        sub_str = "  " + subtitle.get_country().get_name() + "\t| "
+        sub_str += subtitle.get_release() + "\t| "
+        sub_str += str(subtitle.get_rating()) + "\t| "
+        sub_str += str(subtitle.get_hits()) + "\t| "
+        sub_str += subtitle.get_download_url()
+        print sub_str
+elif not subtitles is None:
+    print "No subtitles were found"

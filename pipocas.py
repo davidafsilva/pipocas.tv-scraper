@@ -114,7 +114,7 @@ http_codes = {
 }
 
 # version
-VERSION = "0.20"
+VERSION = "0.21"
 
 
 # Country class
@@ -148,10 +148,11 @@ class PipocasSubtitleCountry:
 
 # Subtitle class
 class PipocasSubtitle:
-    def __init__(self, release, poster_url, country, hits, rating, votes, download_url):
+    def __init__(self, id, release, poster_url, country, hits, rating, votes, download_url):
         """
         Subtitle constructor
         """
+        self.id = id
         self.release = release
         self.poster_url = poster_url
         self.country = country
@@ -159,6 +160,12 @@ class PipocasSubtitle:
         self.rating = rating
         self.votes = votes
         self.download_url = download_url
+
+    def get_id(self):
+        """
+        Gets the subtitle id
+        """
+        return self.id
 
     def get_release(self):
         """
@@ -233,7 +240,7 @@ class PipocasScraper:
 
     def __debug(self, txt):
         if self.__is_debug_enabled():
-            print "[DEBUG]-["+str(datetime.datetime.now())+"] "+txt
+            print "[DEBUG]-[" + str(datetime.datetime.now()) + "] " + str(txt)
 
     def __handle_http_error(self, exception):
         """
@@ -263,7 +270,7 @@ class PipocasScraper:
         try:
             request = self.__build_request(url, None)
             response = urllib2.urlopen(request)
-            return response.read()
+            return response
         except urllib2.HTTPError, e:
             self.error = self.__handle_http_error(e)
         except urllib2.URLError, e:
@@ -340,6 +347,8 @@ class PipocasScraper:
             # download
             tmp = result.select("a.download")[0]
             elements["download"] = configuration["BASE_URL"] + tmp["href"]
+            # id
+            elements["id"] = tmp["href"].replace("download.php?id=", "")
             # add the subtitle
             response.append(self.__create_sub(elements))
         return self.__sort(response)
@@ -349,9 +358,9 @@ class PipocasScraper:
         Creates the subtitle class from the elements
         """
         country = PipocasSubtitleCountry(elements['country'], elements['country_flag'])
-        return PipocasSubtitle(elements['release'], elements['poster'], country,
-                               elements['hits'], elements['rating'], elements['votes'],
-                               elements['download'])
+        return PipocasSubtitle(elements['id'], elements['release'], elements['poster'],
+                               country, elements['hits'], elements['rating'],
+                               elements['votes'], elements['download'])
 
     def __sort(self, subtitles):
         """
@@ -376,6 +385,44 @@ class PipocasScraper:
         """
         return self.error
 
+    def download_subtitle(self, subtitles, filename):
+        """
+        Downloads the given subtitle
+        """
+        # only the top rated subtitle is downloaded
+        sub = subtitles[0]
+        url = sub.get_download_url()
+        self.__debug("downloading subtitle form %s" % (url))
+        if filename is None or len(filename) == 0:
+            filename = sub.get_id() + ".zip"
+        elif len(filename) < 4 or not filename[len(filename)-4:] == ".zip":
+            filename += ".zip"
+        # request the file
+        request = self.__get(url)
+        if not self.has_errors():
+            meta = request.info()
+            file_size = int(meta.getheaders("Content-Length")[0])
+            self.__debug(u"%s bytes to be retrieved" % (file_size))
+            # open the file (write)
+            fp = open(filename, 'wb')
+            file_size_dl = 0
+            block_sz = 8192
+            while True:
+                # read a 8k block
+                _buffer = request.read(block_sz)
+                if not _buffer:
+                    break
+                # status
+                file_size_dl += len(_buffer)
+                fp.write(_buffer)
+                status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
+                status = status + chr(8)*(len(status)+1)
+                self.__debug(status)
+            # close the file
+            fp.close()
+            return filename
+        return None
+
     def search(self, user, pwd, release):
         """
         Searches subtitles for the given release
@@ -384,7 +431,7 @@ class PipocasScraper:
         if self.__login(user, pwd):
             geturl = self.__generate_search_url(release)
             self.__debug("fetching URL: " + geturl)
-            results = self.__get(geturl)
+            results = self.__get(geturl).read()
             if not self.has_errors():
                 if re.search(self.__config("SUBS_NO_RESULTS_REGEX"), results):
                     self.__debug("No results were found for " + release)
@@ -402,6 +449,8 @@ class PipocasScraper:
 # arg parser
 parser = argparse.ArgumentParser(description='Pipocas scraper v%s (c) David Silva 2013' % (VERSION))
 parser.add_argument('release', metavar='release|movie|tv-show', default=None, help='release/movie/tv-show to be searched for')
+parser.add_argument('-d', '--download', action='store_true', help='specifies that the top rated subtitle found shoud be automatically downloaded')
+parser.add_argument('-o', '--output', metavar="filename", default=None, help='specifies that path/filename for the downloaded subtitle. The default name is the subtitle id plus ZIP extension')
 parser.add_argument('-u', '--user', metavar='<user>', default=configuration["LOGIN_USER"], help='specifies the user for the authentication')
 parser.add_argument('-p', '--password', metavar='<password>', default=configuration["LOGIN_PWD"], help='specifies the password for the authentication')
 parser.add_argument('-v', '--verbose', action='store_true', help='turns on the debug/verbose output')
@@ -411,20 +460,31 @@ args = parser.parse_args()
 # setup debug
 configuration["DEBUG"] = args.verbose
 
+# validate -o option (sub_parsers are a bit overkill for this)
+if not args.output is None and not args.download:
+    parser.error("-o/--output must be used with -d/--download switch.")
+
 # execute the scraper
 scraper = PipocasScraper()
 subtitles = scraper.search(args.user, args.password, args.release)
 if scraper.has_errors():
     print scraper.get_error()
 elif not subtitles is None and len(subtitles) > 0:
-    print "   Country\t| Release/Movie/Tv-show\t\t\t\t| Rating\t| Hits\t| Download\t"
-    print "-" * 90
-    for subtitle in subtitles:
-        sub_str = "  " + subtitle.get_country().get_name() + "\t| "
-        sub_str += subtitle.get_release() + "\t| "
-        sub_str += str(subtitle.get_rating()) + "\t| "
-        sub_str += str(subtitle.get_hits()) + "\t| "
-        sub_str += subtitle.get_download_url()
-        print sub_str
+    if args.download:
+        subfile = scraper.download_subtitle(subtitles, args.output)
+        if scraper.has_errors():
+            print scraper.get_error()
+        else:
+            print "zip file downloaded to %s" % (subfile)
+    else:
+        print "   Country\t| Release/Movie/Tv-show\t\t\t\t| Rating\t| Hits\t| Download\t"
+        print "-" * 90
+        for subtitle in subtitles:
+            sub_str = "  " + subtitle.get_country().get_name() + "\t| "
+            sub_str += subtitle.get_release() + "\t| "
+            sub_str += str(subtitle.get_rating()) + "\t| "
+            sub_str += str(subtitle.get_hits()) + "\t| "
+            sub_str += subtitle.get_download_url()
+            print sub_str
 elif not subtitles is None:
     print "No subtitles were found"

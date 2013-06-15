@@ -1,12 +1,13 @@
-<h3>Pipocas Scraper v0.11</h3>
+<h3>Pipocas Scraper v0.21</h3>
 
 This project aims to provide a python API/CLI tool for the pipocas.tv subtitle web site.
 
 <pre>
-<b>usage:</b> pipocas.py [-h] [-u <user>] [-p <password>] [-v] [-V]
+<b>usage:</b> pipocas.py [-h] [-d] [-o filename] [-u <user>] [-p <password>] [-v]
+                  [-V]
                   release|movie|tv-show
 
-Pipocas scraper v0.20 (c) David Silva 2013
+Pipocas scraper v0.21 (c) David Silva 2013
 
 positional arguments:
   release|movie|tv-show
@@ -14,6 +15,12 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
+  -d, --download        specifies that the top rated subtitle found shoud be
+                        automatically downloaded
+  -o filename, --output filename
+                        specifies that path/filename for the downloaded
+                        subtitle. The default name is the subtitle id plus ZIP
+                        extension
   -u <user>, --user <user>
                         specifies the user for the authentication
   -p <password>, --password <password>
@@ -24,6 +31,7 @@ optional arguments:
 
 <h3>Soon:</h3>
 - Country search filter
+- Automatically unpack zip file and rename subtitle (if and only if the zip file contains one entry)
 - JSON output
 - XML output 
 

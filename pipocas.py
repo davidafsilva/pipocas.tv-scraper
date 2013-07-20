@@ -498,7 +498,7 @@ class PipocasScraper:
                 filename += extension
             self.__debug("compressed filename: %s" % (filename))
             # creates a temporary directory for the zip file
-            if not os.pathsep in filename:
+            if not os.sep in filename:
                 is_tmp = True
                 tmp_dir = self.__create_tmp_directory()
                 self.__debug("created temporary directory %s" % (tmp_dir))

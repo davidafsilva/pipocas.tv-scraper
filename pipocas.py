@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: UTF-8 -*-
+
 """
 Copyright (c) 2013, David Silva
 All rights reserved.
@@ -24,11 +27,15 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
+
 import urllib
 import urllib2
 import re
 import datetime
 import argparse
+import tempfile
+import os
+import shutil
 from bs4 import BeautifulSoup
 
 # configuration
@@ -43,9 +50,11 @@ configuration = {
     "LOGIN_URL": "http://pipocas.tv/vlogin.php",
     "LOGIN_FAIL_REGEX": "<strong>Login falhado!</strong>",
     "SUBS_LANG": "todas",
+    "SUBS_LANG_MAP": {"pt": "portugues", "br": "brasileiro", "es": "espanhol", "en": "ingles", "todas": "todas"},
     "SUBS_URL": "http://pipocas.tv/subtitles.php?release={0}&grupo=rel&linguagem={1}",
     "SUBS_NO_RESULTS_REGEX": "<b>Nada Encontrado.</b>",
-    "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh) AppleWebKit/537 Chrome/26 Safari/537",
+    "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/27.0.1453.110 Safari/537.36",
+    "SUBS_COOKIE_WHITELIST": ["PHPSESSID", "__cfduid", "pipocas"]
 }
 
 # /configuration
@@ -114,7 +123,7 @@ http_codes = {
 }
 
 # version
-VERSION = "0.21"
+VERSION = "0.3"
 
 
 # Country class
@@ -217,6 +226,27 @@ class PipocasSubtitle:
         return u"Subtitle" + str(attrs)
 
 
+# Pipocas custom HTTP redirect handler
+class PipocasRedirectHandler(urllib2.HTTPRedirectHandler):
+    def http_error_301(self, req, fp, code, msg, headers):
+        """
+        Handles the 301 redirects
+        """
+        result = urllib2.HTTPRedirectHandler.http_error_301(self, req, fp, code, msg, headers)
+        result.headers = headers
+        result.status = code
+        return result
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        """
+        Handles the 302 redirects
+        """
+        result = urllib2.HTTPRedirectHandler.http_error_302(self, req, fp, code, msg, headers)
+        result.headers = headers
+        result.status = code
+        return result
+
+
 # the scraper class
 class PipocasScraper:
     def __init__(self):
@@ -284,13 +314,31 @@ class PipocasScraper:
         try:
             data = urllib.urlencode(parameters)
             request = self.__build_request(url, data)
-            response = urllib2.urlopen(request)
+            request.add_header("Content-Type", "application/x-www-form-urlencoded")
+            opener = urllib2.build_opener(PipocasRedirectHandler())
+            response = opener.open(request)
             return response
         except urllib2.HTTPError, e:
             self.error = self.__handle_http_error(e)
         except urllib2.URLError, e:
             self.error = "Unable to reach the server:", e.reason
         return None
+
+    def __cleanCookies(self, cookies):
+        """
+        Cleans the received coookies
+        """
+        ret = ""
+        cookies = cookies.replace("httponly, ", "").replace(" path=/,", "")
+        for cookie_str in cookies.split("; "):
+            key_value = cookie_str.split("=")
+            if len(key_value) == 2:
+                for whitelist_str in self.__config("SUBS_COOKIE_WHITELIST"):
+                    if key_value[0].startswith(whitelist_str):
+                        c = key_value[0] + "=" + key_value[1] + "; "
+                        ret = c if len(ret) == 0 else ret + c
+                        break
+        return ret
 
     def __login(self, user, pwd):
         """
@@ -302,8 +350,8 @@ class PipocasScraper:
         if not self.has_errors():
             html = response.read()
             if not re.search(self.__config("LOGIN_FAIL_REGEX"), html):
-                self.cookies = response.info()["Set-Cookie"]
-                self.__debug("Successfully logged in!")
+                self.cookies = self.__cleanCookies(response.info()["Set-Cookie"])
+                self.__debug("Successfully logged in: %s" % (self.cookies))
                 return True
             self.__debug("Login failed")
         return False
@@ -368,8 +416,48 @@ class PipocasScraper:
         """
         return sorted(subtitles, key=lambda subtitle: (subtitle.get_rating(), subtitle.get_hits()), reverse=True)
 
-    def __generate_search_url(self, release):
-        return self.__config("SUBS_URL").format(urllib.quote_plus(release), self.__config("SUBS_LANG"))
+    def __generate_search_url(self, release, language):
+        return self.__config("SUBS_URL").format(urllib.quote_plus(release), self.__config("SUBS_LANG_MAP")[language])
+
+    def __check_zip_for_single_sub(self, zip_file, rename_subtitle):
+        """
+        Checks the given zip file contains only a subtitle
+        """
+        # opens the zip file
+        res = zip_file
+        """
+        TODO: implement
+        try:
+            zf = zipfile.ZipFile(zip_file)
+            self.__debug("ZIP file found.")
+            for member in zf.infolist():
+                print member
+            zf.close()
+        except zipfile.BadZipfile:
+            # rar file found
+            self.__debug("Invalid zip file found")
+        """
+        return res
+
+    def __create_tmp_directory(self):
+        """
+        Creates a temporary directory
+        """
+        return tempfile.mkdtemp(suffix='.tmp', prefix='pipocas', dir=tempfile.gettempdir())
+
+    def __get_file_extension(self, meta):
+        """
+        Gets the file extension from the given headers
+        from an arbitrary request
+        """
+        if "Content-Disposition" in meta:
+            content = meta["Content-Disposition"]
+            for disp in content.split():
+                disp = disp.strip()
+                if disp.startswith("filename="):
+                    filename = disp.replace("filename=", "").replace('"', '')
+                    return filename[len(filename)-4:]
+        return ".rar"
 
     ## public methods ##
 
@@ -389,18 +477,34 @@ class PipocasScraper:
         """
         Downloads the given subtitle
         """
+        working_dir = os.getcwd()
+        is_tmp = False
+        result_filename = None
+        is_auto_filenamed = False
         # only the top rated subtitle is downloaded
         sub = subtitles[0]
         url = sub.get_download_url()
-        self.__debug("downloading subtitle form %s" % (url))
-        if filename is None or len(filename) == 0:
-            filename = sub.get_id() + ".zip"
-        elif len(filename) < 4 or not filename[len(filename)-4:] == ".zip":
-            filename += ".zip"
         # request the file
+        self.__debug("downloading subtitle form %s" % (url))
         request = self.__get(url)
         if not self.has_errors():
             meta = request.info()
+            # construct the filename
+            extension = self.__get_file_extension(meta)
+            if filename is None or len(filename) == 0:
+                filename = sub.get_id() + extension
+                is_auto_filenamed = True
+            elif len(filename) < 4 or not filename[len(filename)-4:] == extension:
+                filename += extension
+            self.__debug("compressed filename: %s" % (filename))
+            # creates a temporary directory for the zip file
+            if not os.pathsep in filename:
+                is_tmp = True
+                tmp_dir = self.__create_tmp_directory()
+                self.__debug("created temporary directory %s" % (tmp_dir))
+                filename = os.path.join(tmp_dir, filename)
+            else:
+                working_dir = os.path.dirname(filename)
             file_size = int(meta.getheaders("Content-Length")[0])
             self.__debug(u"%s bytes to be retrieved" % (file_size))
             # open the file (write)
@@ -420,16 +524,28 @@ class PipocasScraper:
                 self.__debug(status)
             # close the file
             fp.close()
-            return filename
-        return None
+            # try to extract the subtitle
+            if extension == ".zip":
+                result_filename = self.__check_zip_for_single_sub(filename, not is_auto_filenamed)
+            else:
+                result_filename = filename
+            # move the file if in a temporary directory
+            if is_tmp:
+                dest_file = os.path.join(working_dir, os.path.basename(filename))
+                self.__debug("moving file %s to %s" % (result_filename, dest_file))
+                os.rename(result_filename, dest_file)
+                self.__debug("removing temporary directory..")
+                shutil.rmtree(tmp_dir)
+                result_filename = dest_file
+        return result_filename
 
-    def search(self, user, pwd, release):
+    def search(self, user, pwd, release, language):
         """
         Searches subtitles for the given release
         """
         self.error = None
         if self.__login(user, pwd):
-            geturl = self.__generate_search_url(release)
+            geturl = self.__generate_search_url(release, language)
             self.__debug("fetching URL: " + geturl)
             results = self.__get(geturl).read()
             if not self.has_errors():
@@ -439,7 +555,6 @@ class PipocasScraper:
                 else:
                     soup = BeautifulSoup(results)
                     self.__debug("HTML retrieved")
-                    self.__debug(soup)
                     return self.__handle_search_results(soup)
         elif not self.has_errors():
             self.error = "Invalid login credentials specified."
@@ -450,7 +565,10 @@ class PipocasScraper:
 parser = argparse.ArgumentParser(description='Pipocas scraper v%s (c) David Silva 2013' % (VERSION))
 parser.add_argument('release', metavar='release|movie|tv-show', default=None, help='release/movie/tv-show to be searched for')
 parser.add_argument('-d', '--download', action='store_true', help='specifies that the top rated subtitle found shoud be automatically downloaded')
-parser.add_argument('-o', '--output', metavar="filename", default=None, help='specifies that path/filename for the downloaded subtitle. The default name is the subtitle id plus ZIP extension')
+parser.add_argument('-o', '--output', metavar="filename", default=None, help='specifies that path/filename for the downloaded subtitle. The default name is the subtitle id plus ZIP/SRT extension')
+parser.add_argument('-l', '--language', metavar="language", default=configuration["SUBS_LANG"], choices=["pt", "br", "es", "en"], help='specifies the language for the subtitle lookup. \
+    Valid choices are: pt, br, es, en. \
+    The default behavior doesn\'t filter for any kind of language')
 parser.add_argument('-u', '--user', metavar='<user>', default=configuration["LOGIN_USER"], help='specifies the user for the authentication')
 parser.add_argument('-p', '--password', metavar='<password>', default=configuration["LOGIN_PWD"], help='specifies the password for the authentication')
 parser.add_argument('-v', '--verbose', action='store_true', help='turns on the debug/verbose output')
@@ -466,7 +584,7 @@ if not args.output is None and not args.download:
 
 # execute the scraper
 scraper = PipocasScraper()
-subtitles = scraper.search(args.user, args.password, args.release)
+subtitles = scraper.search(args.user, args.password, args.release, args.language)
 if scraper.has_errors():
     print scraper.get_error()
 elif not subtitles is None and len(subtitles) > 0:

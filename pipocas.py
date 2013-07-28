@@ -491,10 +491,13 @@ class PipocasScraper:
             meta = request.info()
             # construct the filename
             extension = self.__get_file_extension(meta)
+            extension_len = len(extension)
             if filename is None or len(filename) == 0:
                 filename = sub.get_id() + extension
                 is_auto_filenamed = True
-            elif len(filename) < 4 or not filename[len(filename)-4:] == extension:
+            elif os.path.isdir(filename):
+                    filename = os.path.join(filename, sub.get_id()) + extension
+            elif len(filename) < extension_len or not filename[len(filename)-extension_len:] == extension:
                 filename += extension
             self.__debug("compressed filename: %s" % (filename))
             # creates a temporary directory for the zip file
@@ -579,8 +582,8 @@ args = parser.parse_args()
 configuration["DEBUG"] = args.verbose
 
 # validate -o option (sub_parsers are a bit overkill for this)
-if not args.output is None and not args.download:
-    parser.error("-o/--output must be used with -d/--download switch.")
+#if not args.output is None and not args.download:
+#    parser.error("-o/--output must be used with -d/--download switch.")
 
 # execute the scraper
 scraper = PipocasScraper()

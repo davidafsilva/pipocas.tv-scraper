@@ -47,6 +47,7 @@ configuration = {
     # tipically you don't need to change nothing below
     "DEBUG": False,
     "BASE_URL": "http://pipocas.tv/",
+    "DL_ID_URL": "http://pipocas.tv/download.php?id=",
     "LOGIN_URL": "http://pipocas.tv/vlogin.php",
     "LOGIN_FAIL_REGEX": "<strong>Login falhado!</strong>",
     "SUBS_LANG": "todas",
@@ -346,7 +347,7 @@ class PipocasScraper:
                         break
         return ret
 
-    def __login(self, user, pwd):
+    def login(self, user, pwd):
         """
         Logs in into the server
         """
@@ -483,13 +484,17 @@ class PipocasScraper:
         """
         Downloads the given subtitle
         """
+        sub = subtitles[0]
+        self.download_subtitle_by_id(sub.get_id(), sub.get_download_url(), filename)
+
+    def download_subtitle_by_id(self, identifier, url, filename):
+        """
+        Downloads the given subtitle by his identifier
+        """
         working_dir = os.getcwd()
         is_tmp = False
         result_filename = None
         is_auto_filenamed = False
-        # only the top rated subtitle is downloaded
-        sub = subtitles[0]
-        url = sub.get_download_url()
         # request the file
         self.__debug("downloading subtitle form %s" % (url))
         request = self.__get(url)
@@ -499,10 +504,10 @@ class PipocasScraper:
             extension = self.__get_file_extension(meta)
             extension_len = len(extension)
             if filename is None or len(filename) == 0:
-                filename = sub.get_id() + extension
+                filename = identifier + extension
                 is_auto_filenamed = True
             elif os.path.isdir(filename):
-                    filename = os.path.join(filename, sub.get_id()) + extension
+                    filename = os.path.join(filename, identifier) + extension
             elif len(filename) < extension_len or not filename[len(filename)-extension_len:] == extension:
                 filename += extension
             self.__debug("compressed filename: %s" % (filename))
@@ -553,7 +558,7 @@ class PipocasScraper:
         Searches subtitles for the given release
         """
         self.error = None
-        if self.__login(user, pwd):
+        if self.login(user, pwd):
             geturl = self.__generate_search_url(release, language)
             self.__debug("fetching URL: " + geturl)
             results = self.__get(geturl).read()
@@ -573,6 +578,7 @@ class PipocasScraper:
 # arg parser
 parser = argparse.ArgumentParser(description='Pipocas scraper v%s (c) David Silva 2013' % (VERSION))
 parser.add_argument('release', metavar='release|movie|tv-show', default=None, help='release/movie/tv-show to be searched for')
+parser.add_argument('-i', '--identifier', action='store_true', help='marks the release as an identifier rather than plaintext (forces -d option as well)')
 parser.add_argument('-d', '--download', action='store_true', help='specifies that the top rated subtitle found shoud be automatically downloaded')
 parser.add_argument('-o', '--output', metavar="filename", default=None, help='specifies that path/filename for the downloaded subtitle. The default name is the subtitle id plus ZIP/SRT extension')
 parser.add_argument('-l', '--language', metavar="language", default=configuration["SUBS_LANG"], choices=["pt", "br", "es", "en"], help='specifies the language for the subtitle lookup. \
@@ -593,25 +599,37 @@ configuration["DEBUG"] = args.verbose
 
 # execute the scraper
 scraper = PipocasScraper()
-subtitles = scraper.search(args.user, args.password, args.release, args.language)
-if scraper.has_errors():
-    print scraper.get_error()
-elif not subtitles is None and len(subtitles) > 0:
-    if args.download:
-        subfile = scraper.download_subtitle(subtitles, args.output)
+if args.identifier:
+    if scraper.login(args.user, args.password):
+        subfile = scraper.download_subtitle_by_id(args.release, configuration["DL_ID_URL"] + args.release, args.output)
         if scraper.has_errors():
             print scraper.get_error()
         else:
             print "zip file downloaded to %s" % (subfile)
+    elif not scraper.has_errors():
+        print "Invalid login credentials specified."
     else:
-        print "   Country\t| Release/Movie/Tv-show\t\t\t\t| Rating\t| Hits\t| Download\t"
-        print "-" * 90
-        for subtitle in subtitles:
-            sub_str = "  " + subtitle.get_country().get_name() + "\t| "
-            sub_str += subtitle.get_release() + "\t| "
-            sub_str += str(subtitle.get_rating()) + "\t| "
-            sub_str += str(subtitle.get_hits()) + "\t| "
-            sub_str += subtitle.get_download_url()
-            print sub_str
-elif not subtitles is None:
-    print "No subtitles were found"
+        print scraper.get_error()
+else:
+    subtitles = scraper.search(args.user, args.password, args.release, args.language)
+    if scraper.has_errors():
+        print scraper.get_error()
+    elif not subtitles is None and len(subtitles) > 0:
+        if args.download:
+            subfile = scraper.download_subtitle(subtitles, args.output)
+            if scraper.has_errors():
+                print scraper.get_error()
+            else:
+                print "zip file downloaded to %s" % (subfile)
+        else:
+            print "   Country\t| Release/Movie/Tv-show\t\t\t\t| Rating\t| Hits\t| Download\t"
+            print "-" * 90
+            for subtitle in subtitles:
+                sub_str = "  " + subtitle.get_country().get_name() + "\t| "
+                sub_str += subtitle.get_release() + "\t| "
+                sub_str += str(subtitle.get_rating()) + "\t| "
+                sub_str += str(subtitle.get_hits()) + "\t| "
+                sub_str += subtitle.get_download_url()
+                print sub_str
+    elif not subtitles is None:
+        print "No subtitles were found"

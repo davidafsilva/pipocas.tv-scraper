@@ -53,7 +53,7 @@ configuration = {
     "SUBS_LANG_MAP": {"pt": "portugues", "br": "brasileiro", "es": "espanhol", "en": "ingles", "todas": "todas"},
     "SUBS_URL": "http://pipocas.tv/subtitles.php?release={0}&grupo=rel&linguagem={1}",
     "SUBS_NO_RESULTS_REGEX": "<b>Nada Encontrado.</b>",
-    "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/27.0.1453.110 Safari/537.36",
+    "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/37.0.2062.122 Safari/537.36",
     "SUBS_COOKIE_WHITELIST": ["PHPSESSID", "__cfduid", "pipocas"]
 }
 
@@ -289,6 +289,8 @@ class PipocasScraper:
         request = urllib2.Request(url, data)
         request.add_header("DNT", "1")
         request.add_header("User-agent", self.__config("HTTP_USER_AGENT"))
+        request.add_header("Referer", self.__config("BASE_URL"))
+        request.add_header("Origin", self.__config("BASE_URL"))
         if not self.cookies is None:
             request.add_header("Cookie", self.cookies)
         return request
@@ -315,6 +317,10 @@ class PipocasScraper:
             data = urllib.urlencode(parameters)
             request = self.__build_request(url, data)
             request.add_header("Content-Type", "application/x-www-form-urlencoded")
+            request.add_header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+            request.add_header("Accept-Encoding", "Accept-Encoding: gzip,deflate")
+            request.add_header("Accept-Language", "pt-PT,pt;q=0.8,en-US;q=0.6,en;q=0.4")
+            request.add_header("Cookie", "pipocasv3_c_pipo_uid=NDA4NzU%3D; pipocasv3_c_pipo_pass=e899334fcb9a95666a5ad987a62df805e5973e60; pipocasv3_hashv=c1b22a5870430d5e848e370d76b0fa73; popup_user_login=yes")
             opener = urllib2.build_opener(PipocasRedirectHandler())
             response = opener.open(request)
             return response
@@ -556,7 +562,7 @@ class PipocasScraper:
                     self.__debug("No results were found for " + release)
                     return []
                 else:
-                    soup = BeautifulSoup(results)
+                    soup = BeautifulSoup(results, "html.parser")
                     self.__debug("HTML retrieved")
                     return self.__handle_search_results(soup)
         elif not self.has_errors():

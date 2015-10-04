@@ -485,7 +485,7 @@ class PipocasScraper:
         Downloads the given subtitle
         """
         sub = subtitles[0]
-        self.download_subtitle_by_id(sub.get_id(), sub.get_download_url(), filename)
+        return self.download_subtitle_by_id(sub.get_id(), sub.get_download_url(), filename)
 
     def download_subtitle_by_id(self, identifier, url, filename):
         """

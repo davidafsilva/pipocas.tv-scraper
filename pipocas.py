@@ -46,15 +46,15 @@ configuration = {
     "LOGIN_PWD": "xxx",
     # tipically you don't need to change nothing below
     "DEBUG": False,
-    "BASE_URL": "http://pipocas.tv/",
-    "DL_ID_URL": "http://pipocas.tv/download.php?id=",
-    "LOGIN_URL": "http://pipocas.tv/vlogin.php",
+    "BASE_URL": "https://pipocas.tv/",
+    "DL_ID_URL": "https://pipocas.tv/download.php?id=",
+    "LOGIN_URL": "https://pipocas.tv/vlogin.php",
     "LOGIN_FAIL_REGEX": "<strong>Login falhado!</strong>",
     "SUBS_LANG": "todas",
     "SUBS_LANG_MAP": {"pt": "portugues", "br": "brasileiro", "es": "espanhol", "en": "ingles", "todas": "todas"},
     "SUBS_URL": "http://pipocas.tv/subtitles.php?release={0}&grupo=rel&linguagem={1}",
     "SUBS_NO_RESULTS_REGEX": "<b>Nada Encontrado.</b>",
-    "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/37.0.2062.122 Safari/537.36",
+    "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.109 Safari/537.36",
     "SUBS_COOKIE_WHITELIST": ["PHPSESSID", "__cfduid", "pipocas"]
 }
 
@@ -321,7 +321,6 @@ class PipocasScraper:
             request.add_header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
             request.add_header("Accept-Encoding", "Accept-Encoding: gzip,deflate")
             request.add_header("Accept-Language", "pt-PT,pt;q=0.8,en-US;q=0.6,en;q=0.4")
-            request.add_header("Cookie", "pipocasv3_c_pipo_uid=NDA4NzU%3D; pipocasv3_c_pipo_pass=e899334fcb9a95666a5ad987a62df805e5973e60; pipocasv3_hashv=c1b22a5870430d5e848e370d76b0fa73; popup_user_login=yes")
             opener = urllib2.build_opener(PipocasRedirectHandler())
             response = opener.open(request)
             return response
